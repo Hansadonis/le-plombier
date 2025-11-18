@@ -3,34 +3,42 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
 
+const clean = (v) => {
+    if (typeof v !== "string") return v;
+    return v.trim().replace(/^"|"$/g, "").replace(/,$/, "");
+};
+
 module.exports = {
     register: (req, res) => {
-        const {
-            name,
-            phone,
-            city,
-            district,
-            password,
-            role,
-            cni_number
-        } = req.body;
+        // nettoyage des entrées
+        const name = clean(req.body.name);
+        const phone = clean(req.body.phone);
+        const city = clean(req.body.city);
+        const district = clean(req.body.district);
+        const password = clean(req.body.password);
+        const role = clean(req.body.role);
+        const cni_number = clean(req.body.cni_number);
+
+        if (!["client", "plombier"].includes(role)) {
+            return res.status(400).json({ message: "Role invalide. Doit être 'client' ou 'plombier'." });
+        }
 
         const id = uuidv4();
 
-        // Gestion des fichiers (plombier)
+        // Gestion des fichiers (plombier) — accepte objet ou tableau
         let profile_picture = null;
         let cni_image = null;
 
         if (req.files) {
-            if (req.files.profile_picture) {
-                profile_picture = req.files.profile_picture[0].filename;
-            }
-            if (req.files.cni_image) {
-                cni_image = req.files.cni_image[0].filename;
-            }
+            const pp = req.files.profile_picture;
+            const ci = req.files.cni_image;
+
+            if (pp) profile_picture = Array.isArray(pp) ? pp[0].filename : pp.filename;
+            if (ci) cni_image = Array.isArray(ci) ? ci[0].filename : ci.filename;
         }
 
         bcrypt.hash(password, 10, (err, hash) => {
+            if (err) return res.status(500).json({ message: "Erreur de hash du mot de passe" });
 
             const sql = `
                 INSERT INTO users 
@@ -53,7 +61,8 @@ module.exports = {
     },
 
     login: (req, res) => {
-        const { phone, password } = req.body;
+        const phone = clean(req.body.phone);
+        const password = clean(req.body.password);
 
         db.query("SELECT * FROM users WHERE phone = ?", [phone], (err, results) => {
             if (err) return res.status(500).json(err);
@@ -70,7 +79,8 @@ module.exports = {
                     expiresIn: "7d",
                 });
 
-                res.json({ token, user });
+                const { password: _, ...safeUser } = user;
+                res.json({ token, user: safeUser });
             });
         });
     }
